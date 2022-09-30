@@ -3,7 +3,12 @@ package com.datapipe.jenkins.vault.credentials;
 import com.bettercloud.vault.Vault;
 import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
+import com.bettercloud.vault.json.Json;
+import com.bettercloud.vault.json.JsonObject;
+import com.bettercloud.vault.json.WriterConfig;
+import com.bettercloud.vault.response.LookupResponse;
 import com.cloudbees.plugins.credentials.CredentialsScope;
+import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -13,6 +18,8 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
 
     private final static Logger LOGGER = Logger
         .getLogger(AbstractVaultTokenCredentialWithExpiration.class.getName());
+
+    private String tokenId;
 
     private Calendar tokenExpiry;
     private String currentClientToken;
@@ -44,7 +51,14 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
     private void setTokenExpiry(Vault vault) {
         int tokenTTL = 0;
         try {
-            tokenTTL = (int) vault.auth().lookupSelf().getTTL();
+            LookupResponse response = vault.auth().lookupSelf();
+
+            tokenId = response.getId();
+            final String tokenSelfLookupJson = new String(response.getRestResponse().getBody(), StandardCharsets.UTF_8);
+            final JsonObject jsonObject = Json.parse(tokenSelfLookupJson).asObject();
+            final String dataJsonObject = jsonObject.get("data").toString(WriterConfig.PRETTY_PRINT);
+            LOGGER.log(Level.FINE, "CA-2586: Auth token self-lookup: " + dataJsonObject);
+            tokenTTL = (int) response.getTTL();
         } catch (VaultException e) {
             LOGGER.log(Level.WARNING, "Could not determine token expiration. " +
                 "Check if token is allowed to access auth/token/lookup-self. " +
@@ -65,9 +79,9 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
         if (timeDiffInMillis < -2000L) {
             // token will be valid for at least another 2s
             result = false;
-            LOGGER.log(Level.FINE, "Auth token is still valid");
+            LOGGER.log(Level.FINE, String.format("Auth token %s is still valid: %d", tokenId, timeDiffInMillis));
         } else {
-            LOGGER.log(Level.FINE, "Auth token has to be re-issued" + timeDiffInMillis);
+            LOGGER.log(Level.FINE, String.format("Auth token %s has to be re-issued %s", tokenId, timeDiffInMillis));
         }
 
         return result;

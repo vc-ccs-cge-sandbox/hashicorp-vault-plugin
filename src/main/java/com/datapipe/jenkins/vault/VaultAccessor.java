@@ -5,8 +5,11 @@ import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
 import com.bettercloud.vault.json.Json;
 import com.bettercloud.vault.json.JsonArray;
+import com.bettercloud.vault.json.JsonObject;
 import com.bettercloud.vault.json.JsonValue;
+import com.bettercloud.vault.json.WriterConfig;
 import com.bettercloud.vault.response.LogicalResponse;
+import com.bettercloud.vault.response.LookupResponse;
 import com.bettercloud.vault.response.VaultResponse;
 import com.bettercloud.vault.rest.RestResponse;
 import com.cloudbees.plugins.credentials.CredentialsMatchers;
@@ -15,6 +18,7 @@ import com.cloudbees.plugins.credentials.CredentialsUnavailableException;
 import com.cloudbees.plugins.credentials.matchers.IdMatcher;
 import com.datapipe.jenkins.vault.configuration.VaultConfigResolver;
 import com.datapipe.jenkins.vault.configuration.VaultConfiguration;
+import com.datapipe.jenkins.vault.credentials.AbstractVaultTokenCredentialWithExpiration;
 import com.datapipe.jenkins.vault.credentials.VaultCredential;
 import com.datapipe.jenkins.vault.exception.VaultPluginException;
 import com.datapipe.jenkins.vault.model.VaultSecret;
@@ -32,11 +36,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
 
 public class VaultAccessor implements Serializable {
+
+    private final static Logger LOGGER = Logger
+        .getLogger(VaultAccessor.class.getName());
 
     private static final long serialVersionUID = 1L;
 
@@ -227,6 +236,23 @@ public class VaultAccessor implements Serializable {
         }
         int status = restResponse.getStatus();
         if (status == 403) {
+            JsonValue jsonResponse = Json.parse(new String(restResponse.getBody(), StandardCharsets.UTF_8));
+            final String prettyJsonResponse = jsonResponse.toString(WriterConfig.PRETTY_PRINT);
+
+            try {
+                Vault vault = new Vault(configuration.getVaultConfig());
+                LookupResponse selfLookupResponse = vault.auth().lookupSelf();
+                final String tokenId = selfLookupResponse.getId();
+                final String tokenSelfLookupJson = new String(selfLookupResponse.getRestResponse().getBody(), StandardCharsets.UTF_8);
+                final JsonObject jsonObject = Json.parse(tokenSelfLookupJson).asObject();
+                final String dataJsonObject = jsonObject.get("data").toString(WriterConfig.PRETTY_PRINT);
+                LOGGER.log(Level.FINE, String.format("CA-2586: Auth token %s got %d: %s", tokenId, status, prettyJsonResponse));
+                LOGGER.log(Level.FINE, "CA-2586: Auth token self-lookup: " + dataJsonObject);
+            } catch (Throwable e) {
+                LOGGER.log(Level.FINE, String.format("CA-2586: Auth token got %d: %s", status, prettyJsonResponse));
+                LOGGER.log(Level.FINE, String.format("CA-2586: Error in self-lookup call on %d token: %s", status, e));
+            }
+
             logger.printf("Access denied to Vault Secrets at '%s'%n", path);
             return true;
         } else if (status == 404) {
