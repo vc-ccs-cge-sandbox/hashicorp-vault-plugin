@@ -3,7 +3,6 @@ package com.datapipe.jenkins.vault.credentials;
 import com.bettercloud.vault.Vault;
 import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
-import com.bettercloud.vault.response.LookupResponse;
 import com.cloudbees.plugins.credentials.CredentialsScope;
 import java.util.Calendar;
 import java.util.logging.Level;
@@ -14,11 +13,6 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
 
     private final static Logger LOGGER = Logger
         .getLogger(AbstractVaultTokenCredentialWithExpiration.class.getName());
-
-    private Calendar lookupTime;
-    private long ttl;
-    private long creationTTL;
-    private long explicitMaxTTL;
 
     private Calendar tokenExpiry;
     private String currentClientToken;
@@ -50,15 +44,7 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
     private void setTokenExpiry(Vault vault) {
         int tokenTTL = 0;
         try {
-            Calendar now = Calendar.getInstance();
-
-            LookupResponse lookupSelf = vault.auth().lookupSelf();
-            tokenTTL = (int) lookupSelf.getTTL();
-
-            lookupTime = now;
-            ttl = lookupSelf.getTTL();
-            creationTTL = lookupSelf.getCreationTTL();
-            explicitMaxTTL = lookupSelf.getExplicitMaxTTL();
+            tokenTTL = (int) vault.auth().lookupSelf().getTTL();
         } catch (VaultException e) {
             LOGGER.log(Level.WARNING, "Could not determine token expiration. " +
                 "Check if token is allowed to access auth/token/lookup-self. " +
@@ -79,20 +65,9 @@ public abstract class AbstractVaultTokenCredentialWithExpiration
         if (timeDiffInMillis < -2000L) {
             // token will be valid for at least another 2s
             result = false;
-            LOGGER.log(Level.FINE, "Auth token is still valid " + timeDiffInMillis);
-            LOGGER.log(Level.FINE,
-                String.format(
-                    "CA-2586: lookupTime=%d, tokenExpiry=%d, ttl=%d, creationTTL=%d, explicitMaxTTL=%d, now=%d",
-                    lookupTime.getTimeInMillis(),
-                    tokenExpiry.getTimeInMillis(),
-                    ttl,
-                    creationTTL,
-                    explicitMaxTTL,
-                    now.getTimeInMillis()
-                )
-            );
+            LOGGER.log(Level.FINE, "Auth token is still valid");
         } else {
-            LOGGER.log(Level.FINE, "Auth token has to be re-issued " + timeDiffInMillis);
+            LOGGER.log(Level.FINE, "Auth token has to be re-issued" + timeDiffInMillis);
         }
 
         return result;
